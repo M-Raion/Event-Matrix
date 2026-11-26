@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event matrix</title>
+    <!-- Load Tailwind CSS for responsive styling and clean layout -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Google Fonts: Inter & JetBrains Mono for crisp typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        pureBlack: '#000000',
+                        pureWhite: '#FFFFFF',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-[#000000] text-[#FFFFFF] font-sans min-h-screen flex flex-col justify-between antialiased selection:bg-white selection:text-black">
+
+    <!-- Header Section -->
+    <header class="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-white/20">
+        <div class="text-center sm:text-left">
+            <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white">Event matrix</h1>
+            <p class="text-xs sm:text-sm text-neutral-400 mt-1 font-mono">Click any cell to enter custom events or notes. Auto-saved locally.</p>
+        </div>
+
+        <!-- Action Controls -->
+        <div class="flex flex-wrap items-center justify-center gap-3">
+            <!-- Status Indicator -->
+            <span id="save-status" class="text-xs font-mono text-neutral-400 px-2 py-1 rounded bg-white/5 border border-white/10 transition-opacity duration-300">
+                Ready
+            </span>
+
+            <!-- Copy Matrix Button -->
+            <button 
+                id="copy-btn" 
+                type="button"
+                class="px-4 py-2 text-xs sm:text-sm font-medium text-white bg-black border border-white rounded-lg hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-white/50 transition-all duration-150 active:scale-95 cursor-pointer"
+                title="Copy matrix content to clipboard">
+                Copy Text
+            </button>
+
+            <!-- Clear / Reset Button -->
+            <button 
+                id="reset-btn" 
+                type="button"
+                class="px-4 py-2 text-xs sm:text-sm font-medium text-black bg-white border border-white rounded-lg hover:bg-neutral-200 focus:outline-none focus:ring-2 focus:ring-white/50 transition-all duration-150 active:scale-95 cursor-pointer"
+                title="Clear all entries in the 5x5 matrix">
+                Clear Matrix
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Centered 5x5 Matrix Container -->
+    <main class="flex-grow flex items-center justify-center w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="w-full overflow-x-auto pb-2">
+            <!-- 5x5 Table with crisp white borders (#FFFFFF) -->
+            <table id="event-matrix-table" class="w-full min-w-[600px] border-collapse border-2 border-[#FFFFFF] table-fixed shadow-[0_0_40px_rgba(255,255,255,0.06)]">
+                <tbody id="matrix-body">
+                    <!-- Rows and cells will be dynamically generated via JavaScript for clean state management -->
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- Custom Non-Blocking Confirmation Modal (Replaces window.confirm) -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="bg-[#000000] border-2 border-[#FFFFFF] rounded-xl max-w-md w-full p-6 shadow-2xl transform transition-all">
+            <h2 class="text-xl font-bold text-white mb-2">Clear Event matrix?</h2>
+            <p class="text-sm text-neutral-300 mb-6">This will erase all custom entries across all 25 cells. This action cannot be undone.</p>
+            <div class="flex justify-end gap-3">
+                <button 
+                    id="cancel-clear-btn" 
+                    type="button"
+                    class="px-4 py-2 text-sm font-medium text-white bg-black border border-white rounded-lg hover:bg-white/10 focus:outline-none transition-colors cursor-pointer">
+                    Cancel
+                </button>
+                <button 
+                    id="confirm-clear-btn" 
+                    type="button"
+                    class="px-4 py-2 text-sm font-medium text-black bg-white border border-white rounded-lg hover:bg-neutral-200 focus:outline-none transition-colors cursor-pointer">
+                    Yes, Clear All
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Toast Notification (Replaces window.alert) -->
+    <div id="toast-notification" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 pointer-events-none transition-all duration-300 bg-white text-black px-4 py-2.5 rounded-lg shadow-lg font-medium text-sm border border-white flex items-center gap-2">
+        <span id="toast-message">Action completed</span>
+    </div>
+
+    <!-- Minimal Footer -->
+    <footer class="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 border-t border-white/15 flex flex-col sm:flex-row items-center justify-between text-xs text-neutral-500 gap-2">
+        <span>5 &times; 5 Interactive Grid</span>
+        <span class="font-mono">Tip: Use Tab or Arrow keys + Click to navigate cells</span>
+    </footer>
+
+    <!-- Application Logic -->
+    <script>
+        /**
+         * Event Matrix Controller
+         * Manages a 5x5 editable HTML table with localStorage persistence,
+         * keyboard accessibility, clipboard export, and custom modal confirmation.
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            const GRID_SIZE = 5;
+            const STORAGE_KEY = 'event_matrix_5x5_data_v1';
+
+            const matrixBody = document.getElementById('matrix-body');
+            const resetBtn = document.getElementById('reset-btn');
+            const copyBtn = document.getElementById('copy-btn');
+            const saveStatus = document.getElementById('save-status');
+
+            // Modal Elements
+            const confirmModal = document.getElementById('confirm-modal');
+            const cancelClearBtn = document.getElementById('cancel-clear-btn');
+            const confirmClearBtn = document.getElementById('confirm-clear-btn');
+
+            // Toast Elements
+            const toastEl = document.getElementById('toast-notification');
+            const toastMsg = document.getElementById('toast-message');
+            let toastTimeout = null;
+
+            // Load existing state or initialize empty 5x5 2D array
+            let matrixData = loadMatrixData();
+
+            /**
+             * Loads saved 5x5 data from localStorage safely
+             * @returns {string[][]} 5x5 array of strings
+             */
+            function loadMatrixData() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed) && parsed.length === GRID_SIZE) {
+                            return parsed.map(row => 
+                                Array.isArray(row) && row.length === GRID_SIZE 
+                                    ? row.map(cell => typeof cell === 'string' ? cell : '') 
+                                    : Array(GRID_SIZE).fill('')
+                            );
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Could not read from localStorage:', error);
+                }
+                return createEmptyMatrix();
+            }
+
+            /**
+             * Creates a fresh 5x5 array filled with empty strings
+             * @returns {string[][]}
+             */
+            function createEmptyMatrix() {
+                return Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(''));
+            }
+
+            /**
+             * Saves current matrixData to localStorage and updates status badge
+             */
+            function saveMatrixData() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(matrixData));
+                    updateSaveStatus('Saved');
+                } catch (error) {
+                    console.warn('Could not save to localStorage:', error);
+                    updateSaveStatus('Session only');
+                }
+            }
+
+            /**
+             * Updates the small status badge in the header
+             * @param {string} text 
+             */
+            function updateSaveStatus(text) {
+                saveStatus.textContent = text;
+                saveStatus.classList.add('text-white', 'border-white/40');
+                setTimeout(() => {
+                    saveStatus.classList.remove('text-white', 'border-white/40');
+                }, 800);
+            }
+
+            /**
+             * Displays a non-blocking toast message at the bottom right
+             * @param {string} message 
+             */
+            function showToast(message) {
+                if (toastTimeout) clearTimeout(toastTimeout);
+                toastMsg.textContent = message;
+                toastEl.classList.remove('translate-y-20', 'opacity-0');
+                toastEl.classList.add('translate-y-0', 'opacity-100');
+
+                toastTimeout = setTimeout(() => {
+                    toastEl.classList.remove('translate-y-0', 'opacity-100');
+                    toastEl.classList.add('translate-y-20', 'opacity-0');
+                }, 2600);
+            }
+
+            /**
+             * Renders the 5x5 interactive table inside #matrix-body
+             */
+            function renderMatrix() {
+                matrixBody.innerHTML = '';
+
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-[#FFFFFF] last:border-b-0';
+
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        const td = document.createElement('td');
+                        td.className = 'border-r border-[#FFFFFF] last:border-r-0 p-0 align-top h-28 sm:h-32 md:h-36 relative group transition-colors duration-150 hover:bg-white/[0.06] focus-within:bg-white/[0.10]';
+
+                        // Coordinate watermark (e.g., R1:C1) subtle on hover/focus
+                        const coordLabel = document.createElement('span');
+                        coordLabel.className = 'absolute top-1.5 right-2 text-[10px] font-mono text-white/25 group-hover:text-white/50 group-focus-within:text-white/70 pointer-events-none select-none transition-colors';
+                        coordLabel.textContent = `${r + 1},${c + 1}`;
+
+                        // Editable textarea inside each cell for seamless multiline typing & wrapping
+                        const textarea = document.createElement('textarea');
+                        textarea.value = matrixData[r][c];
+                        textarea.setAttribute('aria-label', `Row ${r + 1}, Column ${c + 1} event entry`);
+                        textarea.placeholder = '';
+                        textarea.className = 'w-full h-full bg-transparent text-[#FFFFFF] placeholder-white/20 p-3 pt-5 text-sm sm:text-base resize-none border-0 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white leading-relaxed font-normal';
+
+                        // Update state & persist on input
+                        textarea.addEventListener('input', (e) => {
+                            matrixData[r][c] = e.target.value;
+                            saveMatrixData();
+                        });
+
+                        // Allow clicking anywhere on the td to focus the textarea
+                        td.addEventListener('click', (e) => {
+                            if (e.target !== textarea) {
+                                textarea.focus();
+                            }
+                        });
+
+                        td.appendChild(coordLabel);
+                        td.appendChild(textarea);
+                        tr.appendChild(td);
+                    }
+
+                    matrixBody.appendChild(tr);
+                }
+            }
+
+            /**
+             * Opens the custom confirmation modal if there is content, or clears immediately if already empty
+             */
+            function handleResetRequest() {
+                const hasContent = matrixData.some(row => row.some(cell => cell.trim() !== ''));
+                if (!hasContent) {
+                    showToast('Matrix is already empty');
+                    return;
+                }
+                confirmModal.classList.remove('hidden');
+                confirmModal.classList.add('flex');
+                confirmClearBtn.focus();
+            }
+
+            /**
+             * Closes the confirmation modal
+             */
+            function closeConfirmModal() {
+                confirmModal.classList.add('hidden');
+                confirmModal.classList.remove('flex');
+            }
+
+            /**
+             * Executes the reset of all 25 cells
+             */
+            function executeReset() {
+                matrixData = createEmptyMatrix();
+                saveMatrixData();
+                renderMatrix();
+                closeConfirmModal();
+                showToast('All 25 cells cleared');
+            }
+
+            /**
+             * Formats the 5x5 matrix as a tab-separated grid and copies it to clipboard
+             */
+            function copyMatrixToClipboard() {
+                const formattedText = matrixData
+                    .map(row => row.map(cell => cell.replace(/\n/g, ' ').trim() || '[Empty]').join('\t'))
+                    .join('\n');
+
+                // Use temporary textarea + document.execCommand('copy') for reliable iFrame support
+                const tempInput = document.createElement('textarea');
+                tempInput.value = `Event matrix (5x5)\n${'-'.repeat(20)}\n${formattedText}`;
+                tempInput.style.position = 'fixed';
+                tempInput.style.opacity = '0';
+                document.body.appendChild(tempInput);
+                tempInput.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showToast('Matrix copied to clipboard');
+                    } else {
+                        showToast('Unable to copy text');
+                    }
+                } catch (err) {
+                    showToast('Copy failed');
+                } finally {
+                    document.body.removeChild(tempInput);
+                }
+            }
+
+            // Event Listeners
+            resetBtn.addEventListener('click', handleResetRequest);
+            cancelClearBtn.addEventListener('click', closeConfirmModal);
+            confirmClearBtn.addEventListener('click', executeReset);
+            copyBtn.addEventListener('click', copyMatrixToClipboard);
+
+            // Close modal on Escape key or backdrop click
+            confirmModal.addEventListener('click', (e) => {
+                if (e.target === confirmModal) {
+                    closeConfirmModal();
+                }
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !confirmModal.classList.contains('hidden')) {
+                    closeConfirmModal();
+                }
+            });
+
+            // Initial render
+            renderMatrix();
+        });
+    </script>
+</body>
+</html>
